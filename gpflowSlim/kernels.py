@@ -36,7 +36,8 @@ class Kernel(object):
     generic '_slice' function to implement them.
     """
 
-    def __init__(self, input_dim, active_dims=None, name=None):
+    def __init__(self, input_dim, active_dims=None,
+                 train_kernel_params=True, name=None):
         """
         input dim is an integer
         active dims is either an iterable of integers or None.
@@ -52,6 +53,7 @@ class Kernel(object):
         """
         self._name = name
         self.input_dim = int(input_dim)
+        self.train_kernel_params = train_kernel_params
         if active_dims is None:
             self.active_dims = slice(input_dim)
         elif isinstance(active_dims, slice):
@@ -311,7 +313,8 @@ class Static(Kernel):
     parameter is a variance.
     """
 
-    def __init__(self, input_dim, variance=1.0, active_dims=None, name=None):
+    def __init__(self, input_dim, variance=1.0, active_dims=None,
+                 train_kernel_params=True, name=None):
         super().__init__(input_dim, active_dims, name=name)
         with tf.variable_scope(name):
             self._variance = Parameter(variance, transform=transforms.positive, name='variance')
@@ -369,7 +372,7 @@ class Stationary(Kernel):
     """
 
     def __init__(self, input_dim, variance=1.0, lengthscales=None,
-                 active_dims=None, ARD=False, name='kernel'):
+                 active_dims=None, ARD=False, train_kernel_params=True, name='kernel'):
         """
         - input_dim is the dimension of the input to the kernel
         - variance is the (initial) value for the variance parameter
@@ -380,7 +383,7 @@ class Stationary(Kernel):
         - ARD specifies whether the kernel has one lengthscale per dimension
           (ARD=True) or a single lengthscale (ARD=False).
         """
-        super().__init__(input_dim, active_dims, name=name)
+        super().__init__(input_dim, active_dims, train_kernel_params, name=name)
 
         with tf.variable_scope(name):
             self._variance = Parameter(variance, transform=transforms.positive,
@@ -393,7 +396,8 @@ class Stationary(Kernel):
             else:
                 lengthscales = 1.0 if lengthscales is None else lengthscales
             self.ARD = ARD
-            self._ls = Parameter(lengthscales, transform=transforms.positive, name='ls')
+            self._ls = Parameter(lengthscales, transform=transforms.positive,
+                                 trainable=self.train_kernel_params, name='ls')
 
         self._parameters = self._parameters + [self._variance, self._ls]
 
@@ -476,7 +480,8 @@ class Linear(Kernel):
     The linear kernel
     """
 
-    def __init__(self, input_dim, variance=1.0, active_dims=None, ARD=False, name='kernel'):
+    def __init__(self, input_dim, variance=1.0, active_dims=None, ARD=False,
+                 train_kernel_params=True, name='kernel'):
         """
         - input_dim is the dimension of the input to the kernel
         - variance is the (initial) value for the variance parameter(s)
@@ -484,7 +489,8 @@ class Linear(Kernel):
         - active_dims is a list of length input_dim which controls
           which columns of X are used.
         """
-        super().__init__(input_dim, active_dims, name=name)
+        super().__init__(input_dim, active_dims,
+                         train_kernel_params=train_kernel_params, name=name)
         self.ARD = ARD
         with tf.variable_scope(name):
             variance = np.ones(self.input_dim, dtype=settings.float_type) * variance if ARD else variance
@@ -526,6 +532,7 @@ class Polynomial(Linear):
                  offset=1.0,
                  active_dims=None,
                  ARD=False,
+                 train_kernel_params=True,
                  name='kernel'):
         """
         :param input_dim: the dimension of the input to the kernel
@@ -536,7 +543,8 @@ class Polynomial(Linear):
           which columns of X are used.
         :param ARD: use variance as described
         """
-        super().__init__(input_dim, variance, active_dims, ARD, name=name)
+        super().__init__(input_dim, variance, active_dims, ARD,
+                         train_kernel_params=train_kernel_params, name=name)
         self.degree = degree
         with tf.variable_scope(name):
             self._offset = Parameter(offset, transform=transforms.positive, name='offset')
@@ -619,11 +627,15 @@ class Cosine(Stationary):
     The Cosine kernel
     """
     def __init__(self, input_dim, variance=1.0, lengthscales=None,
-                 active_dims=None, ARD=False, name='kernel'):
+                 active_dims=None, ARD=False,
+                 train_kernel_params=True, name='kernel'):
         super(Cosine, self).__init__(input_dim, variance=variance, lengthscales=lengthscales,
-                 active_dims=active_dims, ARD=ARD, name=name)
+                                     active_dims=active_dims, ARD=ARD,
+                                     train_kernel_params=train_kernel_params, name=name)
         with tf.variable_scope(name):
-            self._weights = Parameter(np.random.normal(size=[input_dim, 1]), name='weights')
+            self._weights = Parameter(np.random.normal(size=[input_dim, 1]),
+                                      trainable=self.train_kernel_params,
+                                      name='weights')
         self._parameters = self._parameters + [self._weights]
 
     @property
@@ -668,7 +680,9 @@ class ArcCosine(Kernel):
     def __init__(self, input_dim,
                  order=0,
                  variance=1.0, weight_variances=1., bias_variance=1.0,
-                 active_dims=None, ARD=False, name='kernel'):
+                 active_dims=None, ARD=False,
+                 train_kernel_params=True,
+                 name='kernel'):
         """
         - input_dim is the dimension of the input to the kernel
         - order specifies the activation function of the neural network
@@ -683,7 +697,8 @@ class ArcCosine(Kernel):
         - ARD specifies whether the kernel has one weight_variance per dimension
           (ARD=True) or a single weight_variance (ARD=False).
         """
-        super().__init__(input_dim, active_dims, name=name)
+        super().__init__(input_dim, active_dims,
+                         train_kernel_params=train_kernel_params, name=name)
 
         if order not in self.implemented_orders:
             raise ValueError('Requested kernel order is not implemented.')
@@ -703,7 +718,9 @@ class ArcCosine(Kernel):
                     weight_variances = 1.0
             self.ARD = ARD
             self._weight_variances = Parameter(
-                    weight_variances, transform=transforms.positive, name='weight_variances')
+                weight_variances, transform=transforms.positive,
+                trainable=self.train_kernel_params,
+                name='weight_variances')
 
         self._parameters = self._parameters + [self._variance, self._bias_variance, self._weight_variances]
 
@@ -777,14 +794,19 @@ class Periodic(Kernel):
     """
 
     def __init__(self, input_dim, period=1.0, variance=1.0,
-                 lengthscales=1.0, active_dims=None, name='kernel'):
+                 lengthscales=1.0, active_dims=None,
+                 train_kernel_params=True, name='kernel'):
         # No ARD support for lengthscale or period yet
-        super().__init__(input_dim, active_dims, name=name)
+        super().__init__(input_dim, active_dims,
+                         train_kernel_params=train_kernel_params, name=name)
 
         with tf.variable_scope(name):
-            self._variance = Parameter(variance, transform=transforms.positive, name='variance')
-            self._ls = Parameter(lengthscales, transform=transforms.positive, name='ls')
-            self._period = Parameter(period, transform=transforms.positive, name='period')
+            self._variance = Parameter(variance, transform=transforms.positive,
+                                       trainable=self.train_kernel_params, name='variance')
+            self._ls = Parameter(lengthscales, transform=transforms.positive,
+                                 trainable=self.train_kernel_params, name='ls')
+            self._period = Parameter(period, transform=transforms.positive,
+                                     trainable=self.train_kernel_params, name='period')
 
         self._parameters = self._parameters + [self._variance, self._ls, self._period]
 
@@ -820,7 +842,8 @@ class Periodic(Kernel):
 
 
 class Coregion(Kernel):
-    def __init__(self, input_dim, output_dim, rank, active_dims=None, name='kernel'):
+    def __init__(self, input_dim, output_dim, rank, active_dims=None,
+                 train_kernel_params=True, name='kernel'):
         """
         A Coregionalization kernel. The inputs to this kernel are _integers_
         (we cast them from floats as needed) which usually specify the
@@ -845,15 +868,19 @@ class Coregion(Kernel):
         optimization (or MCMC chain) using a random W.
         """
         assert input_dim == 1, "Coregion kernel in 1D only"
-        super().__init__(input_dim, active_dims, name=name)
+        super().__init__(input_dim, active_dims,
+                         train_kernel_params=train_kernel_params, name=name)
 
         self.output_dim = output_dim
         self.rank = rank
         with tf.variable_scope(name):
-            self._W = Parameter(np.zeros((self.output_dim, self.rank), dtype=settings.float_type), name='W')
+            self._W = Parameter(np.zeros((self.output_dim, self.rank), dtype=settings.float_type),
+                                trainable=self.train_kernel_params, name='W')
             self._kappa = Parameter(
                 np.ones(self.output_dim, dtype=settings.float_type),
-                transform=transforms.positive, name='kappa')
+                transform=transforms.positive,
+                trainable=self.train_kernel_params,
+                name='kappa')
 
         self._parameters = self._parameters + [self._W, self._kappa]
     @property
@@ -886,11 +913,14 @@ class CosineComplex(Stationary):
     The Cosine kernel
     """
     def __init__(self, input_dim, variance=1.0, lengthscales=None,
-                 active_dims=None, ARD=False, name='CosineComplex'):
+                 active_dims=None, ARD=False, train_kernel_params=True,
+                 name='CosineComplex'):
         super(CosineComplex, self).__init__(input_dim, variance=variance, lengthscales=lengthscales,
                  active_dims=active_dims, ARD=ARD, name=name)
         with tf.variable_scope(name):
-            self._weights = Parameter(np.random.normal(size=[input_dim, 1]), name='weights')
+            self._weights = Parameter(np.random.normal(size=[input_dim, 1]),
+                                      trainable=train_kernel_params,
+                                      name='weights')
         self._parameters = self._parameters + [self._weights]
 
     @property
@@ -932,6 +962,7 @@ class RBFComplex(Stationary):
     def dimwise(self, dim):
         return RBF(input_dim=1, variance=self.variance**(1./self.input_dim),
                    lengthscales=self.lengthscales[dim] if self.ARD else self.lengthscales,
+                   train_kernel_params=self.train_kernel_params,
                    name='RBF_dimwise_{}'.format(dim))
 
     def Kdiag(self, X, presliced=False):
@@ -976,7 +1007,7 @@ class Combination(Kernel):
     names.
     """
 
-    def __init__(self, kern_list, name='kernel'):
+    def __init__(self, kern_list, train_kernel_params=True, name='kernel'):
         #if not all(isinstance(k, Kernel) for k in kern_list):
         #    raise TypeError("can only combine Kernel instances")
 
@@ -984,7 +1015,8 @@ class Combination(Kernel):
         active_dims = reduce(np.union1d, (np.r_[x.active_dims] for x in kern_list if isinstance(x, Kernel)), extra_dims)
         input_dim = active_dims.size
 
-        super().__init__(input_dim=input_dim, name=name, active_dims=active_dims)
+        super().__init__(input_dim=input_dim, name=name, active_dims=active_dims,
+                         train_kernel_params=train_kernel_params)
 
         # add kernels to a list, flattening out instances of this class therein
         self.kern_list = []
@@ -1074,3 +1106,4 @@ Kern = make_deprecated_class("Kern", Kernel)
 Add = make_deprecated_class("Add", Sum)
 Prod = make_deprecated_class("Prod", Product)
 PeriodicKernel = make_deprecated_class("PeriodicKernel", Periodic)
+
